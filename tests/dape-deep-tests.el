@@ -1999,4 +1999,11 @@ setup writes markers: delete the three marker lines and the side not wanted."
 
 (provide 'dape-deep-tests)
 
+;; A checkout installed as a package is compiled file by file, and the fakes
+;; this suite requires sit outside `load-path' for that compiler.  Nothing needs
+;; a compiled suite, and `no-byte-compile' also keeps native compilation away.
+;; Local Variables:
+;; no-byte-compile: t
+;; End:
+
 ;;; dape-deep-tests.el ends here

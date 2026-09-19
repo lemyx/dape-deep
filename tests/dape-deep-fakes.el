@@ -48,4 +48,10 @@ remote command locally."
 
 (provide 'dape-deep-fakes)
 
+;; The suite beside this file is not compiled; see dape-deep-tests.el.  Skip
+;; this file too, so a checkout never carries a stale test .elc.
+;; Local Variables:
+;; no-byte-compile: t
+;; End:
+
 ;;; dape-deep-fakes.el ends here
