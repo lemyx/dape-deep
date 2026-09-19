@@ -214,20 +214,27 @@
                         :version "3.11"))))
       (delete-directory root t))))
 
-;; The temporary parent is outside the local home and holds no repository, so
-;; this covers the last fallback: the basename alone.
+;; A temporary directory is not a fixed place: a runner keeps its temporary
+;; files below its own home, which is an anchor for the mirror, while a
+;; workstation keeps them elsewhere.  The three tests below therefore name the
+;; home they expect instead of reading it from the environment.
+;;
+;; This project holds no repository and no home above it, so it covers the last
+;; fallback: the basename alone.
 (ert-deftest dape-deep-remote-root-default-falls-back-to-local-root-test ()
-  (let* ((parent (make-temp-file "dape-deep-prompt-" t))
-         (root (expand-file-name "plain-project" parent)))
+  (let* ((home (make-temp-file "dape-deep-home-" t))
+         (parent (make-temp-file "dape-deep-prompt-" t))
+         (root (expand-file-name "plain-project" parent))
+         (process-environment (cons (concat "HOME=" home)
+                                    (copy-sequence process-environment))))
     (unwind-protect
         (progn
           (make-directory root)
           (should (equal (dape-deep--default-remote-root root)
                          "/root/plain-project")))
-      (delete-directory parent t))))
+      (delete-directory parent t)
+      (delete-directory home t))))
 
-;; HOME decides which anchor a directory outside a repository has, so the tests
-;; below point it at a temporary home and assert on the mirror below it.
 (ert-deftest dape-deep-remote-root-mirrors-path-below-local-home-test ()
   (let* ((home (make-temp-file "dape-deep-home-" t))
          (nested (expand-file-name "projects/demo" home))
