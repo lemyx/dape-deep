@@ -1814,7 +1814,7 @@ setup writes markers: delete the three marker lines and the side not wanted."
                        (dape-deep-tests--ssh-config-with-connection
                         host "10.0.0.5" "root" "2222")))
                     ((symbol-function 'dape-deep--probe-ssh-login)
-                     (lambda (host) 0)))
+                     (lambda (_host) 0)))
             (dape-deep-ssh-add "gpu-box" connection t))
           (should
            (string-prefix-p
@@ -1883,9 +1883,9 @@ setup writes markers: delete the three marker lines and the side not wanted."
         (progn
           (make-directory ssh-directory)
           (cl-letf (((symbol-function 'dape-deep-ssh-effective-config)
-                     (lambda (host) fake))
+                     (lambda (_host) fake))
                     ((symbol-function 'dape-deep--probe-ssh-login)
-                     (lambda (host) 0)))
+                     (lambda (_host) 0)))
             (dape-deep-ssh-add
              "gpu-box" '(:hostname "10.0.0.5" :user "root" :port "2222") t)
             (setq fake (dape-deep-tests--ssh-config-with-connection
