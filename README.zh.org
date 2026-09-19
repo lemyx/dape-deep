@@ -1,0 +1,122 @@
+#+title: dape-deep
+#+author: Di Xiu
+#+options: toc:2
+
+[[https://github.com/lemyx/dape-deep/actions/workflows/test.yml][file:https://github.com/lemyx/dape-deep/actions/workflows/test.yml/badge.svg]]
+
+[[file:README.org][English]]
+
+* 为什么是 dape-deep
+
+考虑一个 monorepo:
+
+#+begin_example
+  monorepo/
+    .git/
+    projects/
+      project-A/
+        .project
+        .gitignore
+        .dir-locals.el
+        ty.toml
+        dape-deep.sh
+      project-B/
+        ...
+#+end_example
+
+以常见的 PyTorch 分布式训练为例, 如果想要调试程序, 一般来说我们有几种选择:
+
+1. 在服务器上安装 Emacs, 通过 SSH 连接到服务器后使用 Emacs TUI
+   - 我们往往会频繁切换远程服务器, 在每个服务器上都需要重新编译 Emacs
+   - 需要解决远程服务器的包安装网络问题 (可以借助 [[https://github.com/redguardtoo/elpa-mirror][elpa-mirror]] 等方法)
+   - 远程服务器的速度存在波动, Emacs TUI 的使用体验往往会打折扣
+   - 远程服务器不一定开放 UDP 端口, mosh 之类改善 SSH 连接体验的方式往往无效
+2. VSCode Remote SSH 插件, 安装 Emacs Keybindings 插件
+   - 远程服务器需要安装插件, 且远程服务器安装插件的速度往往很慢
+   - 即使使用 Emacs Keybindings 插件, 也意味着离开 Emacs 完善的定制化生态环境
+3. PyCharm Remote 调试
+   - PyCharm 相对较重
+   - PyCharm 好用的调试工具隐藏在付费壁垒背后
+
+=dape-deep= 是针对以上痛点, 特地面向 PyTorch 调试而推出的一款 Emacs-native 插件.
+
+  *在支持本地调试的同时, 另一大亮点特色 (也是本包开发的初衷) 是只需要能 SSH 连接到远程服务器, 且远程服务器上具备调试所需的 GPU 资源和 Python 环境, 本地 Emacs 即可在无需具备远程服务器的 Python 环境或 GPU 资源的情况下启动 dape 调试 (默认采用 debugpy attach 功能). 同时本地可配置 LSP, 远端无需配置 LSP*
+
+* 环境要求
+
++ Emacs 29.1 或更新版本
++ [[https://github.com/svaante/dape][Dape]] 0.27.1 或更新版本 (发布在 GNU ELPA)
++ 运行目标的 Python 环境里装有 =debugpy=
++ 使用 Local backend 时, 本地需具备 Python 环境
++ 使用 SSH backend 时, 本地需要 =ssh= 和 =rsync=; 远程需可连通
++ Linux 或 macOS: 生成的 =dape-deep.sh= 是 bash 脚本, 本地 backend 也经由 shell 启动目标; 不支持 Windows
+
+* 参考配置
+
++ 基本不需要配置: =M-x dape-deep-setup-project= 会设定所需变量的值, 所有选项都有可用的默认值
++ 完整变量清单见: =M-x customize-group RET dape-deep=
++ 唯一值得全局设定的 LSP: =dape-deep-local-lsp= 默认 =none=, =eglot/ty= 用户可以改成 =ty=
+
+#+begin_src emacs-lisp
+  (use-package dape-deep
+    :ensure t
+    :after dape
+    :vc (:url "https://github.com/lemyx/dape-deep" :rev :newest)
+    :custom
+    ;; eglot/ty 用户改成 'ty
+    (dape-deep-local-lsp 'none))
+#+end_src
+
+* 典型用法
+
+0. 配置 SSH 连接信息: 若本机尚未配置目标机器的 ssh 连接信息, 执行 =M-x dape-deep-ssh-add=; 若目标机器的 ssh 连接信息已存在, 执行 =M-x dape-deep-ssh-configure= 增强
+1. =C-x C-f= 打开待调试的 main 入口文件
+2. =M-x dape-deep-setup-project= 配置调试信息, 保证本地和远程目录映射深度一致
+3. =M-x dape-deep-run-target= 同步源码, 在远程启动目标并转发调试端口
+4. =M-x dape= 选择 =dape-deep-attach= 然后照常调试: 断点, 单步, REPL 等
+5. 完成调试后 =M-x dape-quit= 停掉所有进程
+
+* 工作原理
+
+#+begin_example
+  Local backend:   Emacs + Dape ◀── localhost:PORT ── debugpy + Python
+
+  SSH backend:     local source ── rsync ─────────▶ synchronized source
+                   Emacs + Dape ◀── SSH -L ──────── debugpy + Python/GPU
+#+end_example
+
+* 命令
+
+| 命令                         | 作用                                                                           |
+|------------------------------+--------------------------------------------------------------------------------|
+| =dape-deep-ssh-add=          | SSH backend: 别名还没配好时写 HostName/User/Port, 装多路复用与保活, 并探测登录 |
+| =dape-deep-setup-project=    | 显示计划后写入项目文件: backend, 目录映射, 端口, 解释器, 并注入调试代码        |
+| =dape-deep-run-target=       | 同步, 在远端启动目标, 转发调试端口并保持隧道                                   |
+| =dape-deep-sync=             | 只同步, 不启动目标                                                             |
+| =dape-deep-start=            | 启动你传入的目标命令 (远端会先同步)                                            |
+| =dape-deep-inject-at-point=  | 在当前行注入 debugpy 引导代码                                                  |
+| =dape-deep-inject-main=      | 在 =__main__= 守卫开头注入 debugpy 引导代码                                    |
+| =dape-deep-remove-injection= | 撤销注入引导代码                                                               |
+
+* setup 会在项目里写什么
+
+| 文件             | 用途                                                                      |
+|------------------+---------------------------------------------------------------------------|
+| =.project=       | 让 project.el 认出项目根, 令 monorepo/projects/project-A 也可以作为项目根 |
+| =.gitignore=     | 让生成的文件不进版本控制                                                  |
+| =.dir-locals.el= | 该项目的 dape-deep 设置, 并让 =M-x dape= 直接选中 =dape-deep-attach=      |
+| =ty.toml=        | 本地语言服务器环境; =dape-deep-local-lsp= 为 =ty= 时才写, 不同步到远端    |
+| =dape-deep.sh=   | 目标启动脚本, 记录解释器和入口文件                                        |
+
+你自己写的 =.dir-locals.el= 不会被覆盖: 缺失的设置合并进去, 值不一致的地方写成 git 风格的冲突标记等你解决.
+=~/.ssh/config= 是特意例外: 冲突只报告并回滚, 不写标记.
+
+* 诊断与排错
+
++ =M-x dape-deep-doctor= 打印项目检查
++ =M-x dape-deep-ssh-doctor= 打印生效的 SSH 设置
++ =M-x dape-deep-ssh-configure= 给已有的别名补装多路复用与保活: 先给 diff, 改动前备份, 校验失败时回滚
+
+* 许可证
+
++ GPL-3.0-or-later, 见 [[file:LICENSE][LICENSE]]

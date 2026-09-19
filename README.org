@@ -1,0 +1,122 @@
+#+title: dape-deep
+#+author: Di Xiu
+#+options: toc:2
+
+[[https://github.com/lemyx/dape-deep/actions/workflows/test.yml][file:https://github.com/lemyx/dape-deep/actions/workflows/test.yml/badge.svg]]
+
+[[file:README.zh.org][中文]]
+
+* Why dape-deep
+
+Consider a monorepo:
+
+#+begin_example
+  monorepo/
+    .git/
+    projects/
+      project-A/
+        .project
+        .gitignore
+        .dir-locals.el
+        ty.toml
+        dape-deep.sh
+      project-B/
+        ...
+#+end_example
+
+Take the usual PyTorch distributed training. When you want to debug the program, you generally have a few options:
+
+1. Install Emacs on the server, and use the Emacs TUI over SSH
+   - you tend to move between remote servers, and Emacs has to be rebuilt on each of them
+   - package installation on the server depends on its network access (elpa-mirror and similar mirrors help)
+   - the server's speed fluctuates, so the Emacs TUI experience suffers for it
+   - the server does not always open a UDP port, so mosh and similar ways of improving the SSH experience often do not work
+2. The VSCode Remote SSH extension, with an Emacs Keybindings plugin
+   - the remote side needs its own extensions, and installing them there is often slow
+   - even with an Emacs Keybindings plugin, you are leaving Emacs' mature customization ecosystem behind
+3. PyCharm Remote debugging
+   - PyCharm is relatively heavy
+   - PyCharm's good debugging tools sit behind a paywall
+
+=dape-deep= is an Emacs-native package for exactly these pain points, built specifically for PyTorch debugging.
+
+  *While it also supports local debugging, the other big highlight (and the original motivation for this package) is that you only need to be able to SSH into the remote server, and that the remote server has the GPU resources and the Python environment the debugging needs: your local Emacs can then start dape debugging without having the remote server's Python environment or GPU resources (using debugpy attach by default). The local side can configure an LSP, while the remote side needs none*
+
+* Requirements
+
++ Emacs 29.1 or newer
++ [[https://github.com/svaante/dape][Dape]] 0.27.1 or newer (published on GNU ELPA)
++ =debugpy= in the Python environment that runs the target
++ with the Local backend, a Python environment on this machine
++ with the SSH backend, local =ssh= and =rsync=; the remote side must be reachable
++ Linux or macOS: the generated =dape-deep.sh= is a bash script, and the local backend starts its target through a shell.  Windows is not supported
+
+* Reference configuration
+
++ almost nothing to configure: =M-x dape-deep-setup-project= sets the variables it needs, and every option has a usable default
++ the full list of variables: =M-x customize-group RET dape-deep=
++ the one LSP worth setting globally: =dape-deep-local-lsp= defaults to =none=, and =eglot/ty= users can change it to =ty=
+
+#+begin_src emacs-lisp
+  (use-package dape-deep
+    :ensure t
+    :after dape
+    :vc (:url "https://github.com/lemyx/dape-deep" :rev :newest)
+    :custom
+    ;; eglot/ty users: change this to 'ty
+    (dape-deep-local-lsp 'none))
+#+end_src
+
+* Typical usage
+
+0. Configure the SSH connection: if this machine has no SSH entry for the target yet, run =M-x dape-deep-ssh-add=; if the target's SSH entry already exists, run =M-x dape-deep-ssh-configure= to enhance it
+1. =C-x C-f= to open the main entry file you want to debug
+2. =M-x dape-deep-setup-project= to configure the debugging information, keeping the local and remote directory mappings at the same depth
+3. =M-x dape-deep-run-target= to synchronize the source, start the target on the remote side and forward the debug port
+4. =M-x dape= to pick =dape-deep-attach=, then debug as usual: breakpoints, stepping, the REPL
+5. When debugging is done, =M-x dape-quit= stops all processes
+
+* How it works
+
+#+begin_example
+  Local backend:   Emacs + Dape ◀── localhost:PORT ── debugpy + Python
+
+  SSH backend:     local source ── rsync ─────────▶ synchronized source
+                   Emacs + Dape ◀── SSH -L ──────── debugpy + Python/GPU
+#+end_example
+
+* Commands
+
+| Command                      | What it does                                                                                                                   |
+|------------------------------+--------------------------------------------------------------------------------------------------------------------------------|
+| =dape-deep-ssh-add=          | SSH backend: writes HostName/User/Port when the alias is not set up yet, installs multiplexing and keepalive, and probes login |
+| =dape-deep-setup-project=    | writes the project files after showing the plan: backend, directory mapping, port, interpreter, and injects the debug code     |
+| =dape-deep-run-target=       | synchronizes, starts the target on the remote side, forwards the debug port and holds the tunnel                               |
+| =dape-deep-sync=             | synchronizes only, without starting a target                                                                                   |
+| =dape-deep-start=            | starts a target command you pass in (the remote side synchronizes first)                                                       |
+| =dape-deep-inject-at-point=  | injects the debugpy bootstrap at the current line                                                                              |
+| =dape-deep-inject-main=      | injects the debugpy bootstrap at the start of the =__main__= guard                                                             |
+| =dape-deep-remove-injection= | removes the injected bootstrap                                                                                                 |
+
+* What setup writes into your project
+
+| File             | Purpose                                                                                                    |
+|------------------+------------------------------------------------------------------------------------------------------------|
+| =.project=       | marks this directory as a project root for project.el, so monorepo/projects/project-A can be one too       |
+| =.gitignore=     | keeps the generated files out of version control                                                           |
+| =.dir-locals.el= | this project's dape-deep settings, and makes =M-x dape= land on =dape-deep-attach= directly                |
+| =ty.toml=        | the local language server environment; written only when =dape-deep-local-lsp= is =ty=, never synchronized |
+| =dape-deep.sh=   | the target launcher, recording the interpreter and the entry file                                          |
+
+A =.dir-locals.el= you wrote yourself is not overwritten: missing settings are merged into it, and a value that disagrees is written as a git-style conflict marker for you to resolve.
+=~/.ssh/config= is the deliberate exception: conflicts are only reported and rolled back, not marked.
+
+* Diagnostics and troubleshooting
+
++ =M-x dape-deep-doctor= prints the project checks
++ =M-x dape-deep-ssh-doctor= prints the effective SSH settings
++ =M-x dape-deep-ssh-configure= installs multiplexing and keepalive on an existing alias: shows a diff first, backs up before changing, and rolls back when validation fails
+
+* License
+
++ GPL-3.0-or-later, see [[file:LICENSE][LICENSE]]

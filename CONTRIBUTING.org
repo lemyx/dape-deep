@@ -1,0 +1,106 @@
+#+title: Contributing to dape-deep
+
+* Before contributing
+
+Please open an issue before implementing a large feature.  Remote execution,
+source synchronization, and automatic code injection all have security and
+portability consequences that should be agreed on before becoming public API.
+
+* Code organization
+
+- =dape-deep.el= is the public entry point and Dape integration layer.
+- =dape-deep-config.el= owns options, validation, and path mapping.
+- =dape-deep-bootstrap.el= owns reversible Python source injection.
+- =dape-deep-project.el= owns project setup plans and local checks.
+- =dape-deep-ssh.el= owns effective SSH checks and managed repair.
+- =dape-deep-process.el= owns ssh, rsync, PTY, and process lifecycle code.
+- =tests/= contains ERT tests and deterministic fakes.
+
+Substantial new functionality should move to a dedicated =dape-deep-*.el=
+module.  Keep user-facing names under the =dape-deep-= prefix and private
+helpers under =dape-deep--=.
+
+The module boundaries are informed by Agent Shell's small same-prefix modules,
+Dape's native configuration model, PET's project-local environment handling,
+and dap-mode's separation of language backends from its protocol client.  They
+are references rather than APIs to imitate wholesale.
+
+* Style
+
+- Use lexical binding in every Emacs Lisp file.
+- Prefer built-in =seq.el= and =map.el= helpers where they improve clarity.
+- Keep nested control flow shallow and use =when-let*= for conditional bindings.
+- Add a =defcustom= only when an option is intended to become maintained public
+  API; start with an internal opinionated default otherwise.
+- Never construct local ssh or rsync invocations as shell strings.
+- Treat repository-provided target commands as untrusted shell code.
+- Keep the generated =safe-local-variable= handlers in =dape-deep-config.el=
+  free of calls into this package: they run from the autoloads file at startup,
+  before this library is loaded.
+- Do not make network- or GPU-dependent tests part of the default test suite.
+
+* Tests
+
+Every behavior change should include an ERT test.  Tests must be deterministic
+and clean up buffers, processes, files, and directories they create.
+
+Run the suite:
+
+#+begin_src shell
+  emacs --batch -Q \
+    -L . \
+    -L /path/to/dape \
+    --load tests/dape-deep-fakes.el \
+    --load tests/dape-deep-tests.el \
+    -f ert-run-tests-batch-and-exit
+#+end_src
+
+Byte-compile with warnings treated as errors:
+
+#+begin_src shell
+  emacs --batch -Q \
+    -L . \
+    -L /path/to/dape \
+    --eval '(setq byte-compile-error-on-warn t)' \
+    -f batch-byte-compile \
+    dape-deep-config.el \
+    dape-deep-bootstrap.el \
+    dape-deep-project.el \
+    dape-deep-ssh.el \
+    dape-deep-process.el \
+    dape-deep.el
+#+end_src
+
+* MELPA
+
+MELPA builds the package from this repository.  =recipes/dape-deep= holds the
+recipe to copy into a [[https://github.com/melpa/melpa][melpa/melpa]] fork; the file name must match the feature
+this package provides.
+
+#+begin_src shell
+  git clone https://github.com/melpa/melpa
+  cp recipes/dape-deep melpa/recipes/dape-deep
+  cd melpa
+  make recipes/dape-deep
+  MELPA_CHANNEL=stable make recipes/dape-deep
+  make sandbox INSTALL=dape-deep
+#+end_src
+
+Before opening the pull request:
+
+- Run =package-lint= and =checkdoc= over every file, and the byte-compilation
+  above; MELPA fails the build on package-lint errors and on compile errors.
+- Keep the =Author=, =Assisted-by=, and GPL headers above =;;; Commentary= in
+  every file.  MELPA asks authors to disclose the agent and model behind
+  AI-assisted code on an =Assisted-by= line.
+- List only =emacs= and =dape= in =Package-Requires=.  Dape ships from GNU ELPA,
+  which is where the MELPA build and sandbox install dependencies from.
+- Do not rely on the =Version= header for releases.  The unstable channel
+  derives a timestamp version from the newest commit, and the stable channel
+  derives its version from git tags, so tag releases as =vX.Y.Z=.
+- Only top-level =.el= files are packaged; =tests/= and =examples/= stay out of
+  the tarball, so no recipe =:files= attribute is needed.
+
+* License
+
+Contributions are accepted under GPL-3.0-or-later, the license of this project.

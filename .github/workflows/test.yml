@@ -1,0 +1,44 @@
+name: Tests
+
+on:
+  workflow_dispatch:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        emacs-version: ['29.1', '30.1']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: purcell/setup-emacs@master
+        with:
+          version: ${{ matrix.emacs-version }}
+      - name: Clone Dape
+        run: git clone --depth 1 https://github.com/svaante/dape ../dape
+      - name: Byte compile
+        run: |
+          emacs --batch -Q \
+            -L . \
+            -L ../dape \
+            --eval '(setq byte-compile-error-on-warn t)' \
+            -f batch-byte-compile \
+            dape-deep-config.el \
+            dape-deep-bootstrap.el \
+            dape-deep-project.el \
+            dape-deep-ssh.el \
+            dape-deep-process.el \
+            dape-deep.el
+      - name: Run tests
+        run: |
+          emacs --batch -Q \
+            -L . \
+            -L ../dape \
+            --load tests/dape-deep-fakes.el \
+            --load tests/dape-deep-tests.el \
+            -f ert-run-tests-batch-and-exit

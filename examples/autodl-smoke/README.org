@@ -1,0 +1,83 @@
+#+title: AutoDL smoke test
+
+This fixture exercises the complete local-edit/remote-run path without cloning
+or installing a large model repository.  It needs only the PyTorch already
+present in most AutoDL images plus =debugpy=.
+
+* Remote preparation
+
+Choose a current PyTorch image with one inexpensive NVIDIA GPU.  On the server:
+
+#+begin_src shell
+  mkdir -p /root/dape-deep-smoke
+  python -m pip install --upgrade debugpy
+  python -c 'import torch; print(torch.__version__, torch.cuda.is_available())'
+#+end_src
+
+The package's first rsync will copy =debug.py= and the setup-generated
+=dape-deep.sh= into that directory.  A separate remote virtual
+environment is optional for this fixture; using the image's base Python is
+intentional because it is the quickest way to retain its CUDA-enabled PyTorch
+installation.
+
+* Local preparation
+
+Copy this directory outside the package checkout if you want setup to generate
+its project files.  Install ty into the shared local environment:
+
+#+begin_src shell
+  ${HOME}/.emacs.d/.venv/bin/python -m pip install ty
+#+end_src
+
+In Emacs, visit the copied =debug.py= and run
+=M-x dape-deep-setup-project=.  Typical answers are:
+
+| Prompt                    | Example                                      |
+|---------------------------+----------------------------------------------|
+| Execution backend         | =ssh=                                         |
+| SSH Host alias            | =autodl=                                     |
+| Remote project root       | =/root/dape-deep-smoke=            |
+| Local Python interpreter  | =${HOME}/.emacs.d/.venv/bin/python=         |
+| Remote Python interpreter | the result of remote =command -v python=     |
+| debugpy port              | =5678=                                       |
+| rank                      | =0=                                          |
+
+Setup writes every remote-debug setting to one =.dir-locals.el= and generates
+=dape-deep.sh= using the entered remote interpreter and =debug.py=.
+It then previews the =__main__= bootstrap, injects it after confirmation, and
+saves =debug.py= automatically.
+Add =ty.toml=, =.dir-locals.el=, and the launcher to the copied project's
+=.gitignore= if you do not want to commit workstation-specific paths.
+
+* Test sequence
+
+1. Run =M-x dape-deep-doctor=.
+2. For a new host alias, run =M-x dape-deep-ssh-add= once to write the
+   connection stanza and the managed multiplexing options.  If the SSH
+   multiplexing checks still fail, run =M-x dape-deep-ssh-configure= and
+   review its diff.
+3. Put a breakpoint on the matrix multiplication line.
+4. Run =M-x dape-deep-run-target=.
+5. Once =*dape-shell*= reports that debugpy is waiting for Dape, run =M-x dape=
+   and choose
+   =dape-deep-attach=.
+6. Continue through the breakpoint.  Successful completion prints
+   =device=cuda= and =sum=120.0=.
+7. Run =M-x dape-deep-remove-injection= and verify the direct removal.
+
+For a CPU-only local rehearsal, temporarily set =REQUIRE_CUDA=0= in
+=dape-deep.sh=.  That checks source injection and process
+orchestration but not the remote GPU path.
+
+* Non-invasive comparison
+
+To compare the CLI strategy, first remove the injected source block and replace
+the contents of =dape-deep.sh= with a launcher for:
+
+#+begin_src shell
+  REQUIRE_CUDA=1 python -m debugpy --listen 127.0.0.1:5678 \
+    --wait-for-client debug.py
+#+end_src
+
+The remaining rsync, SSH tunnel, path mapping, and Dape attach steps are the
+same.
