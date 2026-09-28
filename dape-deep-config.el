@@ -95,7 +95,9 @@ Project setup writes this value to the generated `dape-deep-target-script'."
 `none', the default, writes nothing: the package does not depend on a language
 server, and debugging works without one.  `ty' maintains the ty.toml that points
 ty at `dape-deep-local-python', the eglot and ty combination this package is
-developed with.  Any other server is configured outside this package, because
+developed with.  For dependencies available only on the SSH host, run
+`dape-deep-sync-python-environment' to cache their sources for local ty.
+Any other server is configured outside this package, because
 each one names its interpreter in its own file."
   :type '(choice (const :tag "None" none)
                  (const :tag "Eglot with ty" ty))

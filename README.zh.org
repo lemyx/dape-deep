@@ -93,6 +93,7 @@
 | =dape-deep-setup-project=    | 显示计划后写入项目文件: backend, 目录映射, 端口, 解释器, 并注入调试代码        |
 | =dape-deep-run-target=       | 同步, 在远端启动目标, 转发调试端口并保持隧道                                   |
 | =dape-deep-sync=             | 只同步, 不启动目标                                                             |
+| =dape-deep-sync-python-environment= | 获取远端依赖源码, 供本地 ty 跳转定义 |
 | =dape-deep-start=            | 启动你传入的目标命令 (远端会先同步)                                            |
 | =dape-deep-inject-at-point=  | 在当前行注入 debugpy 引导代码                                                  |
 | =dape-deep-inject-main=      | 在 =__main__= 守卫开头注入 debugpy 引导代码                                    |
@@ -110,6 +111,32 @@
 
 你自己写的 =.dir-locals.el= 不会被覆盖: 缺失的设置合并进去, 值不一致的地方写成 git 风格的冲突标记等你解决.
 =~/.ssh/config= 是特意例外: 冲突只报告并回滚, 不写标记.
+
+* 跳转到远端依赖的定义
+
+本地编辑、SSH 运行目标且使用 Eglot/ty 时, 设置 =dape-deep-local-lsp= 为
+=ty=, 完成项目 setup, 然后在本地项目 buffer 中运行
+=M-x dape-deep-sync-python-environment=. 同步完成后运行
+=M-x eglot-reconnect=, 让 ty 重新读取配置. 此后 =xref-find-definitions=
+即可跟随 =transformers.models.llama.modeling_llama.LlamaAttention= 等导入,
+本地 Python 无需安装 transformers 或 torch.
+
+命令通过 SSH 获取 =dape-deep-remote-python= 的导入路径, 只复制 =.py=,
+=.pyi= 和 =py.typed=, 然后将本地副本写入 =ty.toml= 的
+=environment.extra-paths=. 两端均需 rsync 3 或以上版本. 不需要远端 LSP、
+本地依赖安装或 GPU, 也不下载模型权重和二进制扩展. 项目映射范围内已有的
+目录使用本地源码; 范围外的普通 editable install 和 PYTHONPATH 目录也会复制.
+动态导入钩子创建的模块和仅存在于 zip 内的包不在同步范围内.
+
+远端环境变化后重新运行该命令. 每次成功会在
+=user-emacs-directory/dape-deep/python/= 下生成新快照; 旧快照保留, 供已打开的
+源码 buffer 使用. 下载失败或同步期间 =ty.toml= 被修改时, 保留原有配置.
+重新 setup 会保留匹配的缓存; 不同项目、主机和解释器的缓存相互隔离.
+=dape-deep-doctor= 会检查是否已有缓存.
+
+仅恢复旧版生成的 =pyproject.toml= 不足以让本地跳转正常: ty 优先使用
+=ty.toml=, 且本地服务无法访问远端解释器路径. 通过 TRAMP 运行远端 ty 属于
+另一种工作方式, 需要在远端环境中配置.
 
 * 诊断与排错
 

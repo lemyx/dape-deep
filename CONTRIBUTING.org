@@ -12,6 +12,7 @@ portability consequences that should be agreed on before becoming public API.
 - =dape-deep-config.el= owns options, validation, and path mapping.
 - =dape-deep-bootstrap.el= owns reversible Python source injection.
 - =dape-deep-project.el= owns project setup plans and local checks.
+- =dape-deep-python.el= caches remote dependency sources for local ty.
 - =dape-deep-ssh.el= owns effective SSH checks and managed repair.
 - =dape-deep-process.el= owns ssh, rsync, PTY, and process lifecycle code.
 - =tests/= contains ERT tests and deterministic fakes.
@@ -64,6 +65,7 @@ Byte-compile with warnings treated as errors:
     --eval '(setq byte-compile-error-on-warn t)' \
     -f batch-byte-compile \
     dape-deep-config.el \
+    dape-deep-python.el \
     dape-deep-bootstrap.el \
     dape-deep-project.el \
     dape-deep-ssh.el \

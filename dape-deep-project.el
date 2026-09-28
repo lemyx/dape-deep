@@ -34,6 +34,7 @@
 
 (require 'dape-deep-bootstrap)
 (require 'dape-deep-config)
+(require 'dape-deep-python)
 (require 'project)
 (require 'subr-x)
 
@@ -524,6 +525,11 @@ merge because merging rewrites the whole form."
   (concat "[environment]\n"
           "python = " (dape-deep--toml-string
                         (plist-get spec :local-python)) "\n"
+          (when-let* ((paths (if (plist-member spec :python-paths)
+                                (plist-get spec :python-paths)
+                              (dape-deep--python-cached-paths spec))))
+            (concat "extra-paths = ["
+                    (mapconcat #'dape-deep--toml-string paths ", ") "]\n"))
           (when-let* ((version (plist-get spec :python-version)))
             (concat "python-version = "
                     (dape-deep--toml-string version) "\n"))))
@@ -1019,6 +1025,17 @@ message."
             :detail (or dape-deep-local-python "unset")))
      (when (and ty-managed (eq backend 'ssh))
        (list
+        (list :name "remote Python sources for local ty" :ok
+              (and dape-deep-host dape-deep-remote-python
+                   dape-deep-local-root dape-deep-remote-root
+                   (dape-deep--python-cached-paths
+                    (list :backend backend :root root
+                          :host dape-deep-host
+                          :local-root dape-deep-local-root
+                          :remote-root dape-deep-remote-root
+                          :remote-python dape-deep-remote-python)))
+              :detail (concat "For remote-only imports, run "
+                              "M-x dape-deep-sync-python-environment"))
         (list :name "ty.toml excluded from rsync" :ok
               (member "ty.toml" dape-deep-rsync-excludes)
               :detail "local interpreter configuration must not reach the server")))

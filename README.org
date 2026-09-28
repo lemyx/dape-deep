@@ -93,6 +93,7 @@ Take the usual PyTorch distributed training. When you want to debug the program,
 | =dape-deep-setup-project=    | writes the project files after showing the plan: backend, directory mapping, port, interpreter, and injects the debug code     |
 | =dape-deep-run-target=       | synchronizes, starts the target on the remote side, forwards the debug port and holds the tunnel                               |
 | =dape-deep-sync=             | synchronizes only, without starting a target                                                                                   |
+| =dape-deep-sync-python-environment= | fetches remote dependency sources for local ty definition lookup |
 | =dape-deep-start=            | starts a target command you pass in (the remote side synchronizes first)                                                       |
 | =dape-deep-inject-at-point=  | injects the debugpy bootstrap at the current line                                                                              |
 | =dape-deep-inject-main=      | injects the debugpy bootstrap at the start of the =__main__= guard                                                             |
@@ -110,6 +111,37 @@ Take the usual PyTorch distributed training. When you want to debug the program,
 
 A =.dir-locals.el= you wrote yourself is not overwritten: missing settings are merged into it, and a value that disagrees is written as a git-style conflict marker for you to resolve.
 =~/.ssh/config= is the deliberate exception: conflicts are only reported and rolled back, not marked.
+
+* Go to definitions in remote dependencies
+
+For local editing with Eglot/ty and an SSH target, set
+=dape-deep-local-lsp= to =ty=, run project setup, then run
+=M-x dape-deep-sync-python-environment= from a local project buffer.
+After synchronization completes, run =M-x eglot-reconnect= so ty reloads its
+configuration.  =xref-find-definitions= can then follow imports such as
+=transformers.models.llama.modeling_llama.LlamaAttention= even when the local
+Python environment has no transformers or torch installation.
+
+The command asks =dape-deep-remote-python= for its import paths through SSH,
+copies only =.py=, =.pyi=, and =py.typed= files, and adds the local copies to
+=ty.toml='s =environment.extra-paths=.  It requires rsync 3 or later on both
+machines.  No remote LSP, local dependency installation, GPU, model weights,
+or binary extensions are needed.  Paths within the project mapping use local
+source directories when available; ordinary editable installs and PYTHONPATH
+directories outside that mapping are copied too.  Import hooks that create
+modules dynamically and zip-only packages are not mirrored.
+
+Run the command again after changing the remote environment.  Each successful
+run publishes a new snapshot below =user-emacs-directory/dape-deep/python/=;
+older snapshots remain available to open source buffers.  Failed downloads and
+concurrent edits to =ty.toml= preserve the previous configuration.  Project
+setup retains the matching cache, and caches are separated by project, host,
+and interpreter.  =dape-deep-doctor= reports whether a cache is available.
+
+Restoring the old generated =pyproject.toml= alone does not enable local
+navigation: ty gives =ty.toml= precedence, and remote interpreter paths are not
+accessible to a local server.  A remote ty running through TRAMP is a separate
+workflow and needs configuration in that remote environment.
 
 * Diagnostics and troubleshooting
 

@@ -1997,6 +1997,212 @@ setup writes markers: delete the three marker lines and the side not wanted."
           (should (equal (last argv 3) '("--" "gpu-box" "true"))))
       (delete-directory root t))))
 
+(ert-deftest dape-deep-python-path-probe-validation-test ()
+  (should (equal (dape-deep--python-parse-paths
+                  "Welcome\nDAPE_DEEP_PATHS=[\"/env/site-packages\", \"/a b\"]\r\n")
+                 '("/env/site-packages" "/a b")))
+  (dolist (output '("login failed" "DAPE_DEEP_PATHS=[]"
+                    "DAPE_DEEP_PATHS=[\"relative\"]"
+                    "DAPE_DEEP_PATHS=[1]" "DAPE_DEEP_PATHS=[\"/ssh:x:/a\"]"))
+    (should-error (dape-deep--python-parse-paths output))))
+
+(ert-deftest dape-deep-python-cache-isolated-by-environment-test ()
+  (let* ((spec '(:backend ssh :root "/tmp/project" :local-root "/tmp/project"
+                :host "gpu-box" :remote-root "/remote/project"
+                :remote-python "/env/bin/python"))
+         (directory (dape-deep--python-cache-directory spec)))
+    (should (equal directory
+                   (dape-deep--python-cache-directory
+                    (plist-put (copy-sequence spec) :remote-root "/remote/project/"))))
+    (dolist (entry '((:host . "other-box") (:remote-python . "/other/bin/python")
+                     (:root . "/tmp/other") (:local-root . "/tmp")
+                     (:remote-root . "/other/project")))
+      (should-not
+       (equal directory
+              (dape-deep--python-cache-directory
+               (plist-put (copy-sequence spec) (car entry) (cdr entry))))))))
+
+(ert-deftest dape-deep-python-ty-preserves-user-tables-test ()
+  (let* ((spec '(:backend local :local-python "/usr/bin/python3"))
+         (before (concat (dape-deep--managed-block
+                          "local-ty" (dape-deep--local-ty-body spec))
+                         "\n[rules]\nunresolved-import = \"warn\"\n"))
+         (after (dape-deep--python-ty-content spec '("/cache/one") before)))
+    (should (string-match-p (regexp-quote "extra-paths = [\"/cache/one\"]") after))
+    (should (string-suffix-p "[rules]\nunresolved-import = \"warn\"\n" after))
+    (should-error
+     (dape-deep--python-ty-content spec '("/cache/one")
+                                   "[environment]\npython = \"/mine\"\n")
+     :type 'user-error)))
+
+(defun dape-deep-tests--wait-python-sync ()
+  "Wait for an isolated source synchronization, failing after 20 seconds."
+  (let ((deadline (+ (float-time) 20)))
+    (while (and (get-buffer-process "*dape-deep Python sources*")
+                (< (float-time) deadline))
+      (accept-process-output nil 0.02))
+    (should-not (get-buffer-process "*dape-deep Python sources*"))))
+
+(defun dape-deep-tests--ty-definition (root)
+  "Ask a real local ty for the LlamaAttention definition in ROOT."
+  (require 'jsonrpc)
+  (require 'url-util)
+  (let* ((default-directory root)
+         (process-environment (copy-sequence process-environment))
+         (source (expand-file-name "main.py" root))
+         (uri (url-encode-url (concat "file://" source)))
+         connection)
+    ;; The remote fixture's PYTHONPATH must never help the local server.
+    (setenv "PYTHONPATH" nil)
+    (unwind-protect
+        (progn
+          (setq connection
+                (make-instance
+                 'jsonrpc-process-connection :name "dape-deep test ty"
+                 :notification-dispatcher #'ignore
+                 :process (lambda ()
+                            (make-process
+                             :name "dape-deep test ty" :command '("ty" "server")
+                             :connection-type 'pipe :noquery t
+                             :stderr (get-buffer-create "*dape-deep test ty stderr*")))))
+          (jsonrpc-request
+           connection :initialize
+           `(:processId nil :rootUri ,(url-encode-url (concat "file://" root))
+             :capabilities ,(make-hash-table)
+             :workspaceFolders [(:uri ,(url-encode-url (concat "file://" root))
+                                 :name "fixture")]) :timeout 10)
+          (jsonrpc-notify connection :initialized (make-hash-table))
+          (jsonrpc-notify
+           connection :textDocument/didOpen
+           `(:textDocument (:uri ,uri :languageId "python" :version 1
+                            :text ,(dape-deep--read-file source))))
+          (jsonrpc-request
+           connection :textDocument/definition
+           `(:textDocument (:uri ,uri) :position (:line 1 :character 10))
+           :timeout 10))
+      (when connection
+        (ignore-errors
+          (jsonrpc-request connection :shutdown nil :timeout 2)
+          (jsonrpc-notify connection :exit nil)
+          (accept-process-output nil 0.1))
+        (jsonrpc-shutdown connection))
+      (dolist (buffer (buffer-list))
+        (when (string-match-p "dape-deep test ty" (buffer-name buffer))
+          (kill-buffer buffer))))))
+
+(ert-deftest dape-deep-python-sources-integration-test ()
+  "Download source-only dependencies; preserve the last snapshot on failure."
+  (skip-unless (and (executable-find "rsync") (executable-find "python3")))
+  (let* ((temp (file-truename (make-temp-file "dape-deep-python-" t)))
+         (root (expand-file-name "local/" temp))
+         (remote (expand-file-name "remote project/" temp))
+         (site (expand-file-name "site packages'quoted/" temp))
+         (package (expand-file-name "transformers/models/llama/" site))
+         (user-emacs-directory (expand-file-name "emacs/" temp))
+         (dape-deep-backend 'ssh)
+         (dape-deep-local-lsp 'ty)
+         (dape-deep-host "fake-host")
+         (dape-deep-local-root root)
+         (dape-deep-remote-root remote)
+         (dape-deep-local-python (executable-find "python3"))
+         (dape-deep-remote-python (expand-file-name "target python" temp))
+         (dape-deep-python-version nil)
+         (dape-deep-ssh-program (expand-file-name "ssh" temp))
+         (dape-deep-shell-command '("sh" "-c"))
+         (dape-deep-ssh-arguments nil)
+         (process-environment (copy-sequence process-environment))
+         (spec (list :backend 'ssh :root root :local-root root
+                     :remote-root remote :host dape-deep-host
+                     :local-python dape-deep-local-python
+                     :remote-python dape-deep-remote-python
+                     :python-script "main.py" :port 5678)))
+    (unwind-protect
+        (progn
+          (make-directory root t)
+          (make-directory remote t)
+          (make-directory package t)
+          (write-region
+           "from transformers.models.llama.modeling_llama import LlamaAttention\ncls = LlamaAttention\n"
+           nil (expand-file-name "main.py" root) nil 'silent)
+          (dolist (name '("modeling_llama.py" "modeling_llama.pyi" "py.typed"
+                          "weights.safetensors" "native.so"))
+            (write-region "class LlamaAttention:\n    pass\n" nil
+                          (expand-file-name name package) nil 'silent))
+          (write-region
+           "#!/bin/sh\nwhile [ \"$#\" -gt 0 ]; do\n  case \"$1\" in\n    -o|-S|-p) shift 2 ;;\n    -*) shift ;;\n    *) shift; break ;;\n  esac\ndone\nexec /bin/sh -c \"$*\"\n"
+           nil dape-deep-ssh-program nil 'silent)
+          (set-file-modes dape-deep-ssh-program #o700)
+          (write-region
+           (format "#!/bin/sh\nexec %s -S \"$@\"\n"
+                   (shell-quote-argument (executable-find "python3")))
+           nil dape-deep-remote-python nil 'silent)
+          (set-file-modes dape-deep-remote-python #o700)
+          (setenv "PYTHONPATH" site)
+          (dape-deep-apply-project-plan (dape-deep-project-plan spec))
+          (let ((default-directory root))
+            (dape-deep-sync-python-environment)
+            ;; Sentinels run outside the originating project's buffer.
+            (let ((dape-deep-rsync-program "false"))
+              (dape-deep-tests--wait-python-sync)))
+          (let* ((paths (dape-deep--python-cached-paths spec))
+                 (cached (cadr paths))
+                 (source (expand-file-name
+                          "transformers/models/llama/modeling_llama.py" cached))
+                 (ty-file (expand-file-name "ty.toml" root))
+                 (ty-before (dape-deep--read-file ty-file)))
+            (should (equal (car paths) (directory-file-name root)))
+            (should (file-exists-p source))
+            (should (file-exists-p (concat source "i")))
+            (should (file-exists-p (expand-file-name "py.typed" (file-name-directory source))))
+            (should-not (file-exists-p
+                         (expand-file-name "weights.safetensors" (file-name-directory source))))
+            (should-not (file-exists-p
+                         (expand-file-name "native.so" (file-name-directory source))))
+            (should (string-match-p (regexp-quote cached) ty-before))
+            ;; Setup must retain the snapshot instead of undoing the repair.
+            (should (seq-every-p
+                     (lambda (item) (eq (plist-get item :status) 'unchanged))
+                     (dape-deep-project-plan spec)))
+            ;; A failed refresh must not damage the existing sources or config.
+            (let ((default-directory root)
+                  (dape-deep-rsync-program "false"))
+              (dape-deep-sync-python-environment)
+              (dape-deep-tests--wait-python-sync))
+            (should (equal paths (dape-deep--python-cached-paths spec)))
+            (should (equal ty-before (dape-deep--read-file ty-file)))
+            (should (file-exists-p source))
+            ;; An edit made while SSH is running must win over publication.
+            (let ((default-directory root)
+                  (edited (concat ty-before "\n# Edited during transfer\n")))
+              (dape-deep-sync-python-environment)
+              (write-region edited nil ty-file nil 'silent)
+              (dape-deep-tests--wait-python-sync)
+              (should (equal edited (dape-deep--read-file ty-file)))
+              (should (equal paths (dape-deep--python-cached-paths spec))))
+            ;; A refresh publishes a new complete view, omitting removed files.
+            (delete-file (expand-file-name "modeling_llama.pyi" package))
+            (let ((default-directory root))
+              (dape-deep-sync-python-environment)
+              (dape-deep-tests--wait-python-sync))
+            (let* ((new-paths (dape-deep--python-cached-paths spec))
+                   (new-cache (cadr new-paths)))
+              (should-not (equal paths new-paths))
+              (should-not (file-exists-p
+                           (expand-file-name "transformers/models/llama/modeling_llama.pyi"
+                                             new-cache)))
+              (when (executable-find "ty")
+                (let* ((definitions (dape-deep-tests--ty-definition root))
+                       (uri (plist-get (elt definitions 0) :uri)))
+                  (should (equal uri
+                                 (concat "file://" (file-truename
+                                                   (expand-file-name
+                                                    "transformers/models/llama/modeling_llama.py"
+                                                    new-cache))))))))))
+      (when-let* ((buffer (get-buffer "*dape-deep Python sources*")))
+        (when-let* ((process (get-buffer-process buffer))) (delete-process process))
+        (kill-buffer buffer))
+      (delete-directory temp t))))
+
 (provide 'dape-deep-tests)
 
 ;; A checkout installed as a package is compiled file by file, and the fakes

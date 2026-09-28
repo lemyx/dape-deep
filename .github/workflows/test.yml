@@ -29,6 +29,7 @@ jobs:
             --eval '(setq byte-compile-error-on-warn t)' \
             -f batch-byte-compile \
             dape-deep-config.el \
+            dape-deep-python.el \
             dape-deep-bootstrap.el \
             dape-deep-project.el \
             dape-deep-ssh.el \
