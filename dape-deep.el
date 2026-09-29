@@ -63,6 +63,7 @@
 (require 'dape-deep-config)
 (require 'dape-deep-project)
 (require 'dape-deep-process)
+(require 'dape-deep-source)
 (require 'dape-deep-ssh)
 (require 'subr-x)
 
@@ -151,11 +152,13 @@ This command does not connect to HOST or modify any files."
   "Add SSH path mapping to Dape CONFIG when the selected backend needs it."
   (let ((settings (dape-deep--settings)))
     (if (eq (plist-get settings :backend) 'ssh)
-        (thread-first config
-                      (plist-put 'prefix-local
-                                 (plist-get settings :local-root))
-                      (plist-put 'prefix-remote
-                                 (plist-get settings :remote-root)))
+        (dape-deep-source--configure
+         (thread-first config
+                       (plist-put 'prefix-local
+                                  (plist-get settings :local-root))
+                       (plist-put 'prefix-remote
+                                  (plist-get settings :remote-root)))
+         settings)
       config)))
 
 (defun dape-deep-register-debugpy-config ()

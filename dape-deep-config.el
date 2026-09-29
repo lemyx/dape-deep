@@ -234,6 +234,7 @@ different things on the two sides of an SSH connection."
                                        (<= value 65535))))
            (dape-deep-rank . natnump)
            (dape-deep-sync-before-run . booleanp)
+           (dape-deep-source-reference . booleanp)
            (dape-deep-forward-ports
             . (lambda (value)
                 (and (listp value)

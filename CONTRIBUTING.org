@@ -15,6 +15,7 @@ portability consequences that should be agreed on before becoming public API.
 - =dape-deep-python.el= caches remote dependency sources for local ty.
 - =dape-deep-ssh.el= owns effective SSH checks and managed repair.
 - =dape-deep-process.el= owns ssh, rsync, PTY, and process lifecycle code.
+- =dape-deep-source.el= handles on-demand debugpy sources and their breakpoints.
 - =tests/= contains ERT tests and deterministic fakes.
 
 Substantial new functionality should move to a dedicated =dape-deep-*.el=
@@ -53,6 +54,7 @@ Run the suite:
     -L /path/to/dape \
     --load tests/dape-deep-fakes.el \
     --load tests/dape-deep-tests.el \
+    --load tests/dape-deep-source-tests.el \
     -f ert-run-tests-batch-and-exit
 #+end_src
 
@@ -70,6 +72,7 @@ Byte-compile with warnings treated as errors:
     dape-deep-project.el \
     dape-deep-ssh.el \
     dape-deep-process.el \
+    dape-deep-source.el \
     dape-deep.el
 #+end_src
 

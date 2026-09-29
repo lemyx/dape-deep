@@ -34,6 +34,7 @@ jobs:
             dape-deep-project.el \
             dape-deep-ssh.el \
             dape-deep-process.el \
+                dape-deep-source.el \
             dape-deep.el
       - name: Run tests
         run: |
@@ -42,4 +43,5 @@ jobs:
             -L ../dape \
             --load tests/dape-deep-fakes.el \
             --load tests/dape-deep-tests.el \
+                --load tests/dape-deep-source-tests.el \
             -f ert-run-tests-batch-and-exit
