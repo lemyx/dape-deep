@@ -29,16 +29,19 @@
 ;; the target has no path this machine can open, so the adapter answers with a
 ;; source reference and Dape fetches the file on demand into a read-only buffer.
 ;;
-;; Two things are missing between that mechanism and a usable buffer: debugpy
-;; wants the original path whenever breakpoints are set in one, and it does not
-;; always name the source it sends.  This module supplies the two, and none of it
-;; is active unless `dape-deep-source-reference' is enabled.
+;; Three things are missing between that mechanism and a usable buffer: debugpy
+;; wants the original path whenever breakpoints are set in one, it does not
+;; always name the source it sends, and it leaves the buffer in
+;; `fundamental-mode'.  This module supplies the three, and none of it is active
+;; unless `dape-deep-source-reference' is enabled.
 
 ;;; Code:
 
 (require 'dape)
 (require 'dape-deep-config)
 (require 'subr-x)
+
+(declare-function python-mode "python")
 
 (defcustom dape-deep-source-reference nil
   "Whether Dape reads library sources from the target while debugging.
@@ -112,9 +115,34 @@ copied rather than modified."
                      (plist-put (copy-sequence source) :path remote)))
       arguments)))
 
+(defun dape-deep-source--reference-buffer (conn reference)
+  "Return the buffer Dape made for REFERENCE in CONN's session."
+  (plist-get (dape--source-buffers (dape-deep-source--session conn))
+             reference))
+
+(defun dape-deep-source--highlight (buffer path)
+  "Give the Python source in BUFFER a major mode when nothing else chose one.
+
+An adapter whose MIME type is not in `dape-mime-mode-alist' leaves the buffer in
+`fundamental-mode', without highlighting or code navigation.  Only that mode is
+replaced, so a mode the adapter or the user did pick stands.
+
+BUFFER is given no file name: it belongs to the debug session and does not visit
+a file on disk, which is also what keeps a language server from attaching to it.
+Python mode resets `buffer-read-only', so the flag is saved and put back."
+  (when (and (buffer-live-p buffer)
+             (stringp path)
+             (string-match-p "\\.pyi?\\'" path))
+    (with-current-buffer buffer
+      (when (eq major-mode 'fundamental-mode)
+        (let ((read-only buffer-read-only))
+          (python-mode)
+          (font-lock-mode 1)
+          (setq buffer-read-only read-only))))))
+
 (defun dape-deep-source--make-buffer-advice (make-buffer conn name reference
                                                          content mime-type)
-  "Make the on-demand source buffer for REFERENCE.
+  "Make and finish the on-demand source buffer for REFERENCE.
 
 MAKE-BUFFER is `dape--source-make-buffer', and CONN, NAME, REFERENCE, CONTENT,
 and MIME-TYPE are its arguments.  The adapter does not always name the source
@@ -123,7 +151,9 @@ it sends, and the file name of the remembered path is a better name than none."
          (name (or (and (stringp name) (not (string-empty-p name)) name)
                    (and path (file-name-nondirectory path))
                    name)))
-    (funcall make-buffer conn name reference content mime-type)))
+    (funcall make-buffer conn name reference content mime-type)
+    (dape-deep-source--highlight
+     (dape-deep-source--reference-buffer conn reference) path)))
 
 (defun dape-deep-source--request-advice (request conn command arguments
                                                  &optional cb)

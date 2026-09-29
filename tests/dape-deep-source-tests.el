@@ -163,22 +163,94 @@ Dape asks for a source with the frame's own source object, which names both."
         (session (list :session))
         asked)
     (dape-deep-source-tests--with-session session
-      (dape-deep-source--remember 'conn 12 "/remote/site-packages/torch/a.py")
-      (dape-deep-source--make-buffer-advice
-       (lambda (_conn name _reference _content _mime) (setq asked name))
-       'conn nil 12 "content" "text/x-python")
-      (should (equal asked "a.py")))))
+      (cl-letf (((symbol-function 'dape-deep-source--reference-buffer)
+                 (lambda (&rest _) nil)))
+        (dape-deep-source--remember 'conn 12 "/remote/site-packages/torch/a.py")
+        (dape-deep-source--make-buffer-advice
+         (lambda (_conn name _reference _content _mime) (setq asked name))
+         'conn nil 12 "content" "text/x-python")
+        (should (equal asked "a.py"))))))
 
 (ert-deftest dape-deep-source-keeps-a-name-the-adapter-sent-test ()
   (let ((dape-deep-source-reference t)
         (session (list :session))
         asked)
     (dape-deep-source-tests--with-session session
-      (dape-deep-source--remember 'conn 12 "/remote/site-packages/torch/a.py")
-      (dape-deep-source--make-buffer-advice
-       (lambda (_conn name _reference _content _mime) (setq asked name))
-       'conn "module.py" 12 "content" "text/x-python")
-      (should (equal asked "module.py")))))
+      (cl-letf (((symbol-function 'dape-deep-source--reference-buffer)
+                 (lambda (&rest _) nil)))
+        (dape-deep-source--remember 'conn 12 "/remote/site-packages/torch/a.py")
+        (dape-deep-source--make-buffer-advice
+         (lambda (_conn name _reference _content _mime) (setq asked name))
+         'conn "module.py" 12 "content" "text/x-python")
+        (should (equal asked "module.py"))))))
+
+(defmacro dape-deep-source-tests--with-buffer (content &rest body)
+  "Run BODY in a read-only buffer holding CONTENT, and kill it after.
+BODY runs inside a `let' that binds `buffer' to that buffer."
+  (declare (indent 1))
+  `(let ((buffer (generate-new-buffer "*dape-source test*")))
+     (unwind-protect
+         (progn
+           (with-current-buffer buffer
+             (insert ,content)
+             (setq buffer-read-only t))
+           ,@body)
+       (kill-buffer buffer))))
+
+(ert-deftest dape-deep-source-fontifies-a-python-source-test ()
+  ;; font-lock-mode cannot be observed from batch, where it stays off by
+  ;; design; the mode that carries font-lock-defaults is what a test can see.
+  (dape-deep-source-tests--with-buffer "import torch\n"
+    (dape-deep-source--highlight buffer "/remote/site-packages/torch/a.py")
+    (with-current-buffer buffer
+      (should (eq major-mode 'python-mode))
+      (should buffer-read-only)
+      (should-not buffer-file-name))))
+
+(ert-deftest dape-deep-source-fontifies-a-stub-source-test ()
+  (dape-deep-source-tests--with-buffer "def forward(x: int) -> int: ...\n"
+    (dape-deep-source--highlight buffer "/remote/site-packages/torch/a.pyi")
+    (with-current-buffer buffer
+      (should (eq major-mode 'python-mode)))))
+
+(ert-deftest dape-deep-source-keeps-the-mode-the-adapter-chose-test ()
+  "A MIME type Dape maps keeps its mode, and its read-only flag."
+  (dape-deep-source-tests--with-buffer "import torch\n"
+    (with-current-buffer buffer (text-mode) (setq buffer-read-only t))
+    (dape-deep-source--highlight buffer "/remote/site-packages/torch/a.py")
+    (with-current-buffer buffer
+      (should (eq major-mode 'text-mode))
+      (should buffer-read-only))))
+
+(ert-deftest dape-deep-source-leaves-other-sources-alone-test ()
+  (dape-deep-source-tests--with-buffer "weights\n"
+    (dape-deep-source--highlight buffer "/remote/data/names.txt")
+    (with-current-buffer buffer
+      (should (eq major-mode 'fundamental-mode))
+      (should buffer-read-only))))
+
+(ert-deftest dape-deep-source-highlights-what-it-fetched-test ()
+  "The advice gives the buffer Dape made the mode of its file."
+  (let ((dape-deep-source-reference t)
+        (session (list :session))
+        (buffer (generate-new-buffer "*dape-source fetched*")))
+    (unwind-protect
+        (progn
+          (with-current-buffer buffer
+            (insert "import torch\n")
+            (setq buffer-read-only t))
+          (dape-deep-source-tests--with-session session
+            (cl-letf (((symbol-function 'dape-deep-source--reference-buffer)
+                       (lambda (&rest _) buffer)))
+              (dape-deep-source--remember 'conn 12
+                                          "/remote/site-packages/torch/a.py")
+              (dape-deep-source--make-buffer-advice
+               (lambda (&rest _) nil) 'conn "a.py" 12 "import torch\n"
+               "text/x-python")))
+          (with-current-buffer buffer
+            (should (eq major-mode 'python-mode))
+            (should buffer-read-only)))
+      (kill-buffer buffer))))
 
 (ert-deftest dape-deep-source-requests-without-the-feature-test ()
   "While disabled, requests pass through untouched and nothing is recorded."
