@@ -138,6 +138,30 @@
 =ty.toml=, 且本地服务无法访问远端解释器路径. 通过 TRAMP 运行远端 ty 属于
 另一种工作方式, 需要在远端环境中配置.
 
+* 调试时按需读取远端库, 无需同步依赖
+
+启动新的 SSH 调试会话前, 把 =dape-deep-source-reference= 设为 =t=. 继续在本地
+编辑项目文件, 在项目断点处停下, 用 =dape-step-in= 进入库代码. Dape 只请求你访问
+到的源文件, 并在只读 buffer 中显示. 在这些 buffer 里用
+=dape-breakpoint-toggle= 下远端断点.
+
+调用 PyTorch 模块时, 可能先进入它的调用包装, 才到达 =forward= 方法, 所以一次
+=dape-step-in= 未必能落到你自己的代码.
+
+这是运行时调试, 不是 Eglot 的定义查询. 不下载依赖目录, 取回的源码 buffer 也不
+访问磁盘文件. 其中的引用和断点属于当前会话, 换一个会话需重新打开该源码. 运行
+目标前的项目同步与下载依赖是两件事.
+
+Dape 仍用已有的 prefix 做项目路径换算. 一条恒等的项目 =pathMappings= 让 debugpy
+对项目之外的库改发 =sourceReferences=; opt-in 的兼容层在下断点时, 把原始远端
+路径与 reference 一起交给 debugpy 1.8.21. 显式配置的 =:pathMappings= 会被保留.
+
+* 里程碑
+
++ 已完成: 调试时按需读取库源码并在其中下断点, 无需同步它所在的依赖 (=dape-deep-source-reference=)
++ 已完成: 本地编辑时经本地语言服务器与缓存源码, 跟随定义跳进远端依赖 (=dape-deep-sync-python-environment=)
++ 未完成: 调试器取回的源码 buffer 内的语言服务器跳转. 这些 buffer 不访问磁盘文件, Eglot 无从附着; 取回的 buffer 始终只是运行中程序的只读视图.
+
 * 诊断与排错
 
 + =M-x dape-deep-doctor= 打印项目检查

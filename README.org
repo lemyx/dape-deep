@@ -143,6 +143,40 @@ navigation: ty gives =ty.toml= precedence, and remote interpreter paths are not
 accessible to a local server.  A remote ty running through TRAMP is a separate
 workflow and needs configuration in that remote environment.
 
+* Read remote libraries during debugging without dependency synchronization
+
+Set =dape-deep-source-reference= to =t= before starting a new SSH debug
+session.  Keep editing local project files, stop at a project breakpoint, and
+use =dape-step-in= to enter a library.  Dape requests only the source files you
+visit and displays them in read-only buffers.  Use =dape-breakpoint-toggle= in
+those buffers to set remote breakpoints.
+
+Calling a PyTorch module can enter its call wrappers before its =forward=
+method, so one =dape-step-in= may not be enough to reach your own code.
+
+This is runtime debugging, not Eglot definition lookup.  No dependency
+directories are downloaded, and fetched source buffers do not visit files on
+disk.  Their references and breakpoints are session-specific; open the source
+again in a new session.  Project synchronization before running the target
+remains separate from downloading dependencies.
+
+Dape still translates project paths using its existing prefixes.  A project
+identity =pathMappings= entry tells debugpy to provide =sourceReferences= for
+libraries outside the project.  The opt-in compatibility layer supplies the
+original remote path alongside the reference when setting breakpoints, as
+required by debugpy 1.8.21.  Explicit =:pathMappings= are preserved.
+
+* Milestones
+
++ done: read a library's source while debugging and break in it, without
+  synchronizing the dependency it lives in (=dape-deep-source-reference=)
++ done: follow a definition from local editing into a remote dependency, through
+  the local language server and the cached sources
+  (=dape-deep-sync-python-environment=)
++ not done: language-server navigation inside the source buffers the debugger
+  fetches.  They do not visit a file, so Eglot has nothing to attach to, and a
+  fetched buffer stays a read-only view of the running program.
+
 * Diagnostics and troubleshooting
 
 + =M-x dape-deep-doctor= prints the project checks
